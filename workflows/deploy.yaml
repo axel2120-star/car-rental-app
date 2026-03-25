@@ -1,0 +1,67 @@
+name: Deploy Car Rental App
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: car-rental
+  ECR_REGISTRY: 530639775842.dkr.ecr.ap-south-1.amazonaws.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    # 1. Checkout Code
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    # 2. Configure AWS Credentials
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # 3. Login to Amazon ECR
+    - name: Login to Amazon ECR
+      run: |
+        aws ecr get-login-password --region $AWS_REGION \
+        | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+    # 4. Build Docker Image
+    - name: Build Docker Image
+      run: |
+        docker build -t $ECR_REPOSITORY .
+
+    # 5. Tag Image (using commit SHA)
+    - name: Tag Docker Image
+      run: |
+        IMAGE_TAG=${{ github.sha }}
+        docker tag $ECR_REPOSITORY:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REPOSITORY:latest $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    # 6. Push Image to ECR
+    - name: Push Docker Image
+      run: |
+        IMAGE_TAG=${{ github.sha }}
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    # 7. Update kubeconfig
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region $AWS_REGION --name car-rental-eks
+
+    # 8. Deploy to Kubernetes
+    - name: Deploy to EKS
+      run: |
+        kubectl apply -f k8s/
+            - name: Restart Deployment
+      run: |
+        kubectl rollout restart deployment car-rental
